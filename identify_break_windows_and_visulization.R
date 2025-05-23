@@ -7,6 +7,9 @@ genome <- args[3]         # genome file with chr sizes
 output_refine <- args[4]  # output file that has chromosome and break intervals
 plot1 <- args[5]          # identification of breaks on chr
 plot2 <- args[6]          # identification of breaks in fine regions
+median_size <- args[7]    # size of median filter
+# median size 101 works well for most species except for R. pubera
+# due to its large genome size
 
 #####
 library(stats)
@@ -19,49 +22,58 @@ chrlist <- unique(df$chr)
 chrsizes <- read.table(genome)
 
 # visualization output
-pdf(plot1, width = 15, height = 6)
+pdf(plot1, width = 5*length(chrlist), height = 6)
 layout(matrix(1:(3*length(chrlist)), 3, length(chrlist), byrow = F),
        widths=10*c(chrsizes$V2)/sum(chrsizes$V2),
        heights=c(2,2,2))
 
 break_intervals <- c()
+#df_all <- c()
 for (chr in chrlist) {
   df_chr <- df[df$chr==chr & df$chrnum!=0,]
   
   # median filter to remove noisy signals
-  df_chr$medianSig <- runmed(df_chr$chrnum, 101, endrule="constant")
+  df_chr$medianSig <- runmed(df_chr$chrnum, median_size, endrule="constant")
   
   # first derivative
   df_chr$change_to_prev <- c(0, diff(df_chr$medianSig))
-  df_all <- rbind(df_all, df_chr)
+  
+  #df_all <- rbind(df_all, df_chr)
   
   # non-zero derivatives (potential changing points)
   potential_cp <- df_chr[df_chr$change_to_prev!=0,]
   
-  #
-  current_row <- 
+  # find changing intervals in the non-zero derivatives
+  # as long as this windows are in the distance of 1Mbp to the next widow
+  # they are regarded as the same changing points
   prev_record <- df_chr[which(rownames(df_chr)==rownames(potential_cp[1,]))-1,]
+  
   interval_s <- c(prev_record$end+1)
   interval_e <- c()
-  old_chrnum <- c(prev_record$chrnum)
+  old_chrnum <- c(prev_record$medianSig)
   new_chrnum <- c()
   
-  for (i in 2:nrow(potential_cp)) {
-    current_s <- potential_cp[i, 'start']
-    
-    if((current_s - potential_cp[i-1, 'start'])>=1e+06){
-      # when current position is not close to previous,
-      # update
-      interval_e <- c(interval_e, potential_cp[i-1, 'start'])
-      new_chrnum <- c(new_chrnum, potential_cp[i-1, 'chrnum'])
+  if (nrow(potential_cp) < 2){
+    print(paste(chr, "has only one row at the changing point."))
+  }
+  else{
+    for (i in 2:nrow(potential_cp)) {
+      current_s <- potential_cp[i, 'start']
       
-      prev_record <- df_chr[which(rownames(df_chr)==rownames(potential_cp[i,]))-1,]
-      interval_s <- c(interval_s, prev_record$end+1)
-      old_chrnum <- c(old_chrnum, prev_record$chrnum)
+      if((current_s - potential_cp[i-1, 'end'])>=1e+06){
+        # when current position is not close to previous,
+        # update
+        interval_e <- c(interval_e, potential_cp[i-1, 'end'])
+        new_chrnum <- c(new_chrnum, potential_cp[i-1, 'medianSig'])
+        
+        prev_record <- df_chr[which(rownames(df_chr)==rownames(potential_cp[i,]))-1,]
+        interval_s <- c(interval_s, prev_record$end+1)
+        old_chrnum <- c(old_chrnum, potential_cp[i-1, 'medianSig'])
+      }
     }
   }
-  interval_e <- c(interval_e, potential_cp[nrow(potential_cp), 'start'])
-  new_chrnum <- c(new_chrnum, potential_cp[nrow(potential_cp), 'chrnum'])
+  interval_e <- c(interval_e, potential_cp[nrow(potential_cp), 'end'])
+  new_chrnum <- c(new_chrnum, potential_cp[nrow(potential_cp), 'medianSig'])
   
   # define break interval in windows
   break_this_chr <- cbind(rep(chr, length(interval_s)), interval_s, interval_e, old_chrnum, new_chrnum)
@@ -109,8 +121,8 @@ for (i in 1:nrow(break_intervals)) {
   new_chr <- break_intervals[i, 'new_chr']
   
   this_cp <- df_org[df_org$V1==target_chr &
-                    df_org$V3>=(break_intervals[i, 'interval_s']-1e+05) &
-                    df_org$V2<=(break_intervals[i, 'interval_e']+1e+05) &
+                    df_org$V3>=(break_intervals[i, 'interval_s']-1e+06) &
+                    df_org$V2<=(break_intervals[i, 'interval_e']+1e+06) &
                     (df_org$V4==old_chr | df_org$V4==new_chr),]
   
   # compute cumulative counts of old and new chrs
