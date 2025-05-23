@@ -5,6 +5,7 @@ paf=$1
 outDir=$2
 queryChrNum=$3
 compos=$4
+medianSize=$5
 winSize=50000
 stepSize=10000
 
@@ -44,9 +45,6 @@ cut -f6-7 $paf | sort | uniq > $outDir/genome_target.genome
 
 # ---------- TARTGET BREAK POINTS ---------- #
 
-# make windows
-bedtools makewindows -g genome_target.genome -w $winSize -s $stepSize > $outDir/windows.bed
-
 # extract alignment positions
 cut -f1,3,4,6,8,9 $paf | sort -k4,4 -k5,5n > $outDir/aln_pairs.txt
 
@@ -58,16 +56,24 @@ awk '
     { $1 = map[$1]; print $4"\t"$5"\t"$6"\t"$1}   # Replace $1 in aln_pairs.txt with numeric value
 ' $queryChrNum $outDir/aln_pairs.txt > $outDir/target_genome_composition.bed
 
-# only include query sequences that are main compositions of a certain chromosomes
+# only include query sequences that are main compositions of a certain target chromosomes
 # information of compositions of target chromosomse are in $compos
-Rscript /netscratch/dep_mercier/grp_marques/mzhang/GENESPACE/Compare_20_Rhynchospora/extract_main_compos.R $outDir/target_genome_composition.bed $outDir/target_main_composition.txt $outDir/target_main_composition.bed
+Rscript /netscratch/dep_mercier/grp_marques/mzhang/GENESPACE/Compare_20_Rhynchospora/scripts_identify_breaks/extract_main_compos.R $outDir/target_genome_composition.bed $compos $outDir/target_main_composition.bed
 
+
+# make windows
+
+bedtools makewindows -g $outDir/genome_target.genome -w $winSize -s $stepSize > $outDir/windows.bed
 # calculate mean in sliding windows
-bedtools map -a $outDir/windows.bed -b $outDir/target_main_composition.bed -c 4 -o mean -null 0 > $outDir/target_genome_windows.bed
+bedtools map -a $outDir/windows.bed -b $outDir/target_main_composition.bed -c 4 -o mean -null 0 > $outDir/target_genome_composition_smoothed.tmp
+# only use the target chromosomes having more than 2 main queries
+cut -f1 $compos | sort | uniq -c | awk '$1>1 {print $2}' > $outDir/viable_chrs.list
+grep -Ff $outDir/viable_chrs.list $outDir/target_genome_composition_smoothed.tmp | awk '$NF>0' > $outDir/target_genome_composition_smoothed.bed
+rm $outDir/target_genome_composition_smoothed.tmp
 
-# find the windows that the breaking happened
+# find the intervals that the breaking happened
 # also check the R plots
-Rscript $outDir/target_genome_windows.bed $outDir/break_windows.bed $outDir/identify_breaks.pdf
+Rscript /netscratch/dep_mercier/grp_marques/mzhang/GENESPACE/Compare_20_Rhynchospora/scripts_identify_breaks/identify_break_windows_and_visulization.R $outDir/target_genome_composition_smoothed.bed $outDir/target_main_composition.bed $outDir/genome_target.genome $outDir/break_intervals.txt $outDir/identify_breaks_chr.pdf $outDir/identify_breaks_refined.pdf $medianSize
 
 # refine break intervals based on the breaking windows
 
@@ -75,4 +81,3 @@ Rscript $outDir/target_genome_windows.bed $outDir/break_windows.bed $outDir/iden
 
 # TODO:
 # ---------- QUERY BREAK POINTS ---------- #
-
