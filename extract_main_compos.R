@@ -7,7 +7,10 @@ output <- args[3]
 df <- read.table(bed)
 comp <- read.table(compos)
 
-chrlist <- unique(comp$V1)
+#chrlist <- unique(comp$V1)
+# count repeat time of target chr
+t <- table(comp$V1)
+chrlist <- names(t)[t > 1]
 
 cleaned_df <- c()
 for (chr in chrlist) {
